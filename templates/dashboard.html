@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solaron Multi-Platform Solar Reporting & Messaging Dashboard</title>
+    <meta name="api-key" content="{{ API_KEY or '' }}">
+    <meta name="description"
+        content="Solaron Homes unified portal: fetch and report on Growatt, iSolarCloud, and SuryaLog plants, generate daily/weekly/monthly reports, export CSV, and send automated WhatsApp messages.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.2">
+</head>
+
+<body>
+    <div class="app-container">
+
+        <!-- ── Header ── -->
+        <header class="glass-header">
+            <div class="logo-area">
+                <h1>Solaron Reporting & Messaging</h1>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <span class="tagline">Unified Growatt • iSolarCloud • SuryaLog Operations</span>
+                    <span id="systemHealthBadge" class="status-badge badge-active"
+                        style="cursor: pointer; font-size: 0.75rem; padding: 2px 8px;" onclick="showDiagnosticsModal()"
+                        title="Click to view live system diagnostics">🟢 Checking System...</span>
+                </div>
+            </div>
+
+            <div class="header-controls">
+                <!-- Source Selector Checkboxes -->
+                <div class="source-toggles" title="Select monitoring portals to include">
+                    <span class="control-label">Sources:</span>
+                    <label class="source-checkbox badge-growatt">
+                        <input type="checkbox" id="srcGrowatt" value="growatt" checked onchange="onSourceCheckboxChange()">
+                        <span>Growatt</span>
+                    </label>
+                    <label class="source-checkbox badge-isolarcloud">
+                        <input type="checkbox" id="srcIsolarcloud" value="isolarcloud" checked onchange="onSourceCheckboxChange()">
+                        <span>iSolarCloud</span>
+                    </label>
+                    <label class="source-checkbox badge-suryalog">
+                        <input type="checkbox" id="srcSuryalog" value="suryalog" checked onchange="onSourceCheckboxChange()">
+                        <span>SuryaLog</span>
+                    </label>
+                </div>
+
+                <!-- Month & Year Interactive Calendar Picker -->
+                <div class="fetch-group">
+                    <button id="themeToggleBtn" class="btn btn-secondary btn-sm" onclick="toggleTheme()"
+                        title="Toggle Light/Dark Theme" style="padding: 6px; border-radius: 50%;">
+                        <span class="icon" id="themeIcon">🌓</span>
+                    </button>
+                    <div class="calendar-picker-wrap" id="calendarPickerWrap"
+                        style="display: flex; align-items: center; gap: 8px;">
+                        <span class="cal-btn-icon" id="pickerIcon" style="font-size: 1.2rem;">🗓</span>
+                        <input type="month" id="reportMonth" class="form-input" onchange="onMonthPicked(this.value)"
+                            style="font-family: inherit; font-weight: 600; cursor: pointer;">
+                        <input type="date" id="reportDate" class="form-input" onchange="onDatePicked(this.value)"
+                            style="display:none; font-family: inherit; font-weight: 600; cursor: pointer;">
+                        <select id="reportYearSelect" class="form-input" onchange="onYearPicked(this.value)"
+                            style="display:none; font-family: inherit; font-weight: 600; cursor: pointer;">
+                            <option value="2026">2026</option>
+                            <option value="2025">2025</option>
+                            <option value="2024">2024</option>
+                            <option value="2023">2023</option>
+                        </select>
+                    </div>
+
+                    <label class="force-refresh-label" title="Bypass cache and scrape fresh data">
+                        <input type="checkbox" id="forceRefresh"> Refresh
+                    </label>
+                    <button id="fetchBtn" class="btn btn-primary" onclick="fetchData()">
+                        <span class="icon">⚡</span> Fetch Data
+                    </button>
+                    <button id="uploadBtn" class="btn btn-secondary"
+                        onclick="document.getElementById('fileUpload').click()"
+                        title="Upload existing Excel SolarOn report">
+                        <span class="icon">📁</span> Upload Excel
+                    </button>
+                    <input type="file" id="fileUpload" accept=".xls,.xlsx" style="display:none" onchange="uploadFile()">
+                </div>
+            </div>
+        </header>
+
+        <!-- ── Unified Hub Navigation Bar ── -->
+        <nav class="hub-nav-bar">
+            <div class="hub-tabs-list">
+                <button class="hub-tab-btn active" id="hubTabTelemetry" onclick="switchHubMode('telemetry')">
+                    <span>⚡ Fleet & Telemetry</span>
+                </button>
+                <button class="hub-tab-btn" id="hubTabDirectory" onclick="switchHubMode('directory')">
+                    <span>👥 Customer Directory</span>
+                </button>
+                <button class="hub-tab-btn" id="hubTabMonthly" onclick="switchHubMode('monthly')">
+                    <span>💳 Monthly Statements</span>
+                </button>
+                <button class="hub-tab-btn" id="hubTabYearly" onclick="switchHubMode('yearly')">
+                    <span>🏆 Yearly Milestones</span>
+                </button>
+                <button class="hub-tab-btn" id="hubTabCampaigns" onclick="switchHubMode('campaigns')">
+                    <span>🚀 Campaign Manager</span>
+                </button>
+                <button class="hub-tab-btn" id="hubTabAlerts" onclick="switchHubMode('alerts')">
+                    <span>🔔 Offline Alerts</span>
+                </button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <button id="crmDataHealthBadge" class="data-health-badge-btn" onclick="switchHubMode('directory')" title="Click to view data health and filter issues">
+                    <span id="dataHealthBadgeText">⚠️ Audit: Checking...</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- ── Mode 1: Fleet & Telemetry Operations ── -->
+        <div id="telemetryViewSection">
+        <!-- ── Stats Overview ── -->
+        <section class="stats-container">
+            <div class="stat-card total-gen">
+                <h3>Total Generation (<span id="stat-period-label">Month</span>)</h3>
+                <p class="stat-value" id="stat-total-energy">— kWh</p>
+                <span class="stat-sub" id="stat-total-savings">Est. Savings: ₹—</span>
+            </div>
+            <div class="stat-card active">
+                <h3>Active Plants</h3>
+                <p class="stat-value" id="stat-active">—</p>
+                <span class="stat-sub">Generating power</span>
+            </div>
+            <div class="stat-card not-working">
+                <h3>Not Working / Fault</h3>
+                <p class="stat-value" id="stat-not-working" style="color: #f59e0b;">—</p>
+                <span class="stat-sub" style="color: #fbbf24;">Zero gen / Inverter fault</span>
+            </div>
+            <div class="stat-card offline">
+                <h3>Offline Plants</h3>
+                <p class="stat-value" id="stat-offline">—</p>
+                <span class="stat-sub">Needs attention</span>
+            </div>
+            <div class="stat-card nc">
+                <h3>Not Commissioned</h3>
+                <p class="stat-value" id="stat-nc">—</p>
+                <span class="stat-sub">Zero lifetime generation</span>
+            </div>
+            <div class="stat-card breakdown">
+                <h3>Platform Fleet</h3>
+                <div class="platform-counts">
+                    <span class="p-chip p-growatt" id="chip-growatt">Growatt: —</span>
+                    <span class="p-chip p-isolar" id="chip-isolar">iSolar: —</span>
+                    <span class="p-chip p-surya" id="chip-surya">SuryaLog: —</span>
+                </div>
+                <span class="stat-sub" id="stat-total-cap">Total Cap: — kWp</span>
+                <span class="stat-sub" id="stat-live-power" style="display:block; margin-top:4px; font-weight:600; color:var(--primary-light);">Live Power: — kW</span>
+                <span class="stat-sub" id="stat-fleet-yield" style="display:block; margin-top:2px; font-weight:600; color:#38bdf8;">Mean Yield: — kWh/kWp</span>
+            </div>
+        </section>
+
+        <!-- ── View Switcher Bar ── -->
+        <section class="view-tabs-bar glass-panel">
+            <div class="view-tabs">
+                <span class="tabs-label">Report Granularity:</span>
+                <button class="tab-btn" data-view="daily" onclick="switchView('daily')">
+                    📅 Daily View
+                </button>
+                <button class="tab-btn" data-view="weekly" onclick="switchView('weekly')">
+                    📊 Weekly View
+                </button>
+                <button class="tab-btn active" data-view="monthly" onclick="switchView('monthly')">
+                    🗓 Monthly Report
+                </button>
+                <button class="tab-btn" data-view="yearly" onclick="switchView('yearly')">
+                    📆 Yearly View
+                </button>
+            </div>
+            <div class="export-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button id="fetchYearlyBtn" class="btn btn-outline" onclick="openYearlyFetchModal()"
+                    title="Fetch yearly generation history on-demand (takes ~8-20 min)"
+                    style="border-color: #a78bfa; color: #a78bfa;">
+                    📈 Fetch Yearly Data
+                </button>
+                <button class="btn btn-outline" onclick="openImportContactsModal()"
+                    title="Upload CSV with customer contact phone numbers"
+                    style="border-color: #38bdf8; color: #38bdf8;">
+                    📁 Import Contacts
+                </button>
+                <button class="btn btn-export" onclick="exportCsv()" title="Download current view as a CSV report">
+                    📥 Export to CSV
+                </button>
+            </div>
+        </section>
+
+        <!-- ── Quick Presets & Live Sync Bar ── -->
+        <section class="preset-sync-bar glass-panel">
+            <div class="presets-group">
+                <span class="control-label" style="margin-right: 2px;">⚡ Presets:</span>
+                <button class="btn-preset" onclick="setPreset('today')" title="View today's generation">Today</button>
+                <button class="btn-preset" onclick="setPreset('yesterday')" title="View yesterday's generation">Yesterday</button>
+                <button class="btn-preset" onclick="setPreset('this_week')" title="View current week estimate">This Week</button>
+                <button class="btn-preset active" onclick="setPreset('this_month')" title="View current month data">This Month</button>
+                <button class="btn-preset" onclick="setPreset('prev_month')" title="View previous month data">Last Month</button>
+                <button class="btn-preset" onclick="setPreset('year_2026')" title="View 2026 annual data">2026</button>
+                <button class="btn-preset" onclick="setPreset('year_2025')" title="View 2025 annual data">2025</button>
+            </div>
+            <div class="live-sync-group">
+                <span id="lastUpdatedBadge" class="last-updated-badge">Updated: Just now</span>
+                <button id="quickRefreshBtn" class="btn btn-secondary btn-sm" onclick="refreshLiveData(false)" title="Quick refresh live data from memory/server" style="padding: 4px 10px; font-size: 0.78rem;">
+                    🔄 Live Refresh
+                </button>
+                <button id="liveSyncBtn" class="btn-live-toggle active" onclick="toggleLiveSync()" title="Toggle 60s auto-refresh polling">
+                    <span class="live-pulse" id="livePulseTag"></span>
+                    <span id="liveSyncText">Live (60s)</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ── Filters & Messaging Actions ── -->
+        <section class="action-bar glass-panel">
+            <div class="filters">
+                <input type="text" id="searchInput" placeholder="🔍 Search plant name or city…" oninput="renderTable()">
+
+                <select id="sourceFilter" onchange="renderTable()">
+                    <option value="All">All Platforms</option>
+                    <option value="growatt">Growatt Only</option>
+                    <option value="isolarcloud">iSolarCloud Only</option>
+                    <option value="suryalog">SuryaLog Only</option>
+                </select>
+
+                <select id="statusFilter" onchange="renderTable()" style="font-weight: 600;">
+                    <option value="All">All Statuses</option>
+                    <option value="unsent" style="font-weight: 700; color: #38bdf8;">⏳ Unsent Only (No Double-Send)</option>
+                    <option value="sent" style="font-weight: 700; color: #22c55e;">✅ Sent Only</option>
+                    <option value="Active">🟢 Active Plants</option>
+                    <option value="Not Working" style="color: #f59e0b; font-weight: 700;">⚠️ Not Working / Fault</option>
+                    <option value="Offline" style="color: #ef4444;">🔴 Offline Plants</option>
+                    <option value="Not Commissioned">⚪ Not Commissioned</option>
+                    <option value="deviated" style="color: #fb923c; font-weight: 700;">📉 Underperforming (&lt; -15%)</option>
+                    <option value="missing_phone">📱 Missing Phone Only</option>
+                </select>
+
+                <select id="deviationFilter" onchange="renderTable()" title="Filter by performance deviation benchmark" style="font-weight: 600; background: rgba(30, 41, 59, 0.85); color: #fdba74; border: 1px solid rgba(251, 146, 60, 0.4);">
+                    <option value="all">⚡ All Deviations</option>
+                    <option value="deviated_moderate">📉 Moderate Drop (&lt; -15% Dev)</option>
+                    <option value="deviated_severe">🚨 Severe Drop (&lt; -25% Dev)</option>
+                    <option value="top_performers">⭐ Top Performers (&gt; +10% Dev)</option>
+                </select>
+
+                <select id="sortFilter" onchange="onSortFilterChange()" title="Sort table rows">
+                    <option value="energy_desc" selected>Sort: Energy (Highest First)</option>
+                    <option value="energy_asc">Sort: Energy (Lowest First)</option>
+                    <option value="yield_desc">Sort: Specific Yield (High → Low)</option>
+                    <option value="deviation_asc">Sort: Deviation (Worst Underperformers First)</option>
+                    <option value="deviation_desc">Sort: Deviation (Top Overperformers First)</option>
+                    <option value="savings_desc">Sort: Savings (Highest First)</option>
+                    <option value="savings_asc">Sort: Savings (Lowest First)</option>
+                    <option value="capacity_desc">Sort: Capacity (High → Low)</option>
+                    <option value="capacity_asc">Sort: Capacity (Low → High)</option>
+                    <option value="name_asc">Sort: Name (A → Z)</option>
+                    <option value="name_desc">Sort: Name (Z → A)</option>
+                </select>
+            </div>
+
+            <div class="bulk-actions" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <button id="sendSelectedBtn" class="btn btn-primary btn-sm" onclick="sendSelectedDirect()"
+                    style="background: linear-gradient(135deg, #0284c7, #2563eb); font-weight: 700; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);"
+                    title="Send WhatsApp messages directly to all checked plants sequentially with small gap">
+                    ✉ Send Selected (<span id="selectedCountBadge">0</span>)
+                </button>
+                <div style="display: inline-flex; align-items: center; gap: 5px; background: rgba(15,23,42,0.7); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56,189,248,0.3);">
+                    <span style="font-size: 0.74rem; color: #38bdf8; font-weight: 700;">⚙ Mode:</span>
+                    <select id="sendSpeedSelect" style="background: transparent; color: #f8fafc; border: none; font-size: 0.75rem; font-weight: 600; cursor: pointer; outline: none;" title="Choose between Manual (You press Enter) or Automated send mode">
+                        <option value="manual" selected>👤 Manual (I Press Enter - Safe)</option>
+                        <option value="14">🤖 Auto: Safe Anti-Ban (12-16s)</option>
+                        <option value="12">⏳ Auto: Moderate (10-14s)</option>
+                        <option value="9">⚡ Auto: Quick (8-10s)</option>
+                    </select>
+                </div>
+
+                <!-- Quick Selection Helpers -->
+                <button class="btn btn-sm" onclick="selectActiveWithPhone()"
+                    style="background: rgba(34, 197, 94, 0.22); border: 1px solid #22c55e; color: #4ade80; font-weight: 700; padding: 4px 10px; display: inline-flex; align-items: center; gap: 5px;"
+                    title="Select all Active plants with verified phone numbers">
+                    📱 Phone + Active
+                </button>
+                <button class="btn btn-sm" onclick="selectNotWorkingWithPhone()"
+                    style="background: rgba(245, 158, 11, 0.22); border: 1px solid #f59e0b; color: #fbbf24; font-weight: 700; padding: 4px 10px; display: inline-flex; align-items: center; gap: 5px;"
+                    title="Select all Not Working / Inverter Alert plants with verified phone numbers">
+                    ⚠️ Phone + Not Working
+                </button>
+                <button class="btn btn-sm" onclick="selectOfflineWithPhone()"
+                    style="background: rgba(239, 68, 68, 0.22); border: 1px solid #ef4444; color: #f87171; font-weight: 700; padding: 4px 10px; display: inline-flex; align-items: center; gap: 5px;"
+                    title="Select all Offline plants with verified phone numbers">
+                    📱 Phone + Offline
+                </button>
+                <button class="btn btn-sm" onclick="selectDeviatedWithPhone()"
+                    style="background: rgba(251, 146, 60, 0.22); border: 1px solid #fb923c; color: #fdba74; font-weight: 700; padding: 4px 10px; display: inline-flex; align-items: center; gap: 5px;"
+                    title="Select all underperforming deviated plants with phone numbers">
+                    📉 Phone + Deviated
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="selectAllActive()"
+                    style="border-color: #22c55e; color: #4ade80;" title="Select all Active plants">
+                    🟢 All Active
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="selectAllNotWorking()"
+                    style="border-color: #f59e0b; color: #fbbf24;" title="Select all Not Working plants">
+                    ⚠️ All Not Working
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="selectAllOffline()"
+                    style="border-color: #ef4444; color: #f87171;" title="Select all Offline plants">
+                    🔴 All Offline
+                </button>
+
+                <!-- Dropdown for additional batch presets -->
+                <select id="quickSelectDropdown" onchange="onQuickSelectChange(this)"
+                    style="background: #1e293b; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; padding: 4px 8px; font-size: 0.78rem; font-weight: 600; cursor: pointer; outline: none;"
+                    title="More selection options">
+                    <option value="" disabled selected>⚡ More Select...</option>
+                    <option value="ActiveWithPhone">📱 Phone + Active</option>
+                    <option value="NotWorkingWithPhone">⚠️ Phone + Not Working</option>
+                    <option value="OfflineWithPhone">📱 Phone + Offline</option>
+                    <option value="DeviatedWithPhone">📉 Phone + Deviated (&lt; -15%)</option>
+                    <option value="ActiveOfflineWithPhone">📱 Phone + Both (Active & Offline)</option>
+                    <option value="First100">⚡ First 100 Unsent</option>
+                    <option value="First50">⚡ First 50 Unsent</option>
+                    <option value="AllWithPhone">📞 All with Phone Numbers</option>
+                    <option value="Clear">✕ Deselect All</option>
+                </select>
+
+                <button class="btn btn-outline btn-sm" onclick="clearAllSelections()"
+                    style="border-color: rgba(255,255,255,0.18); color: #94a3b8;" title="Clear all checkboxes">
+                    ✕ Deselect All
+                </button>
+
+                <button class="btn btn-danger btn-sm" onclick="triggerMonsoon()">
+                    ⚠ Monsoon Alert
+                </button>
+                <button id="testSendBtn" class="btn btn-outline btn-sm" onclick="testWhatsAppModal()"
+                    style="border-color: #22c55e; color: #4ade80;"
+                    title="Test sending WhatsApp message to verified number">
+                    📱 Test Send
+                </button>
+            </div>
+        </section>
+
+        <!-- ── Data Table ── -->
+        <section class="table-container glass-panel">
+            <table id="plantsTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" id="selectAll" onchange="toggleAllCheckboxes()"
+                                title="Select all visible"></th>
+                        <th class="sortable-th" id="th-platform" onclick="toggleSort('platform')" title="Click to sort by Platform">
+                            Platform <span id="sortIcon-platform" class="sort-icon">↕</span></th>
+                        <th class="sortable-th" id="th-name" onclick="toggleSort('name')" title="Click to sort by Name">
+                            Plant Name <span id="sortIcon-name" class="sort-icon">↕</span></th>
+                        <th class="sortable-th" id="th-phone" onclick="toggleSort('phone')" title="Click to sort by Phone">
+                            Phone <span id="sortIcon-phone" class="sort-icon">↕</span></th>
+                        <th class="sortable-th" id="th-status" onclick="toggleSort('status')" title="Click to sort by Status">
+                            Status <span id="sortIcon-status" class="sort-icon">↕</span></th>
+                        <th class="sortable-th" id="th-capacity" onclick="toggleSort('capacity')"
+                            title="Click to sort by Capacity">Capacity <span id="sortIcon-capacity"
+                                class="sort-icon">↕</span></th>
+                        <th class="sortable-th" id="th-power" onclick="toggleSort('power')"
+                            title="Click to sort by Live Power">Live Power <span id="sortIcon-power"
+                                class="sort-icon">↕</span></th>
+                        <th id="energyHeader" class="sortable-th" onclick="toggleSort('energy')"
+                            title="Click to sort by Energy">Energy (kWh) <span id="sortIcon-energy"
+                                class="sort-icon">▼</span></th>
+                        <th class="sortable-th" id="th-yield" onclick="toggleSort('yield')"
+                            title="Specific Yield (kWh/kWp) and Deviation from Fleet Benchmark">Yield & Dev <span id="sortIcon-yield"
+                                class="sort-icon">↕</span></th>
+                        <th class="sortable-th" id="th-savings" onclick="toggleSort('savings')"
+                            title="Click to sort by Savings">Savings (₹) <span id="sortIcon-savings"
+                                class="sort-icon">↕</span></th>
+                        <th>WhatsApp / Preview</th>
+                        <th>Sent?</th>
+                    </tr>
+                </thead>
+                <tbody id="plantsBody">
+                    <tr>
+                        <td colspan="12">
+                            <div class="empty-state">
+                                <strong>No data loaded</strong>
+                                <p>Select your platforms above and click <strong>Fetch Data</strong>, or upload a
+                                    SolarOn Excel report.</p>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+        </div> <!-- ── End Mode 1: Fleet & Telemetry Operations ── -->
+
+        <!-- ── Mode 2: CRM Tab 1 — Customer Directory ── -->
+        <section id="crmDirectorySection" class="crm-view-section">
+            <!-- Data Health Action Widget -->
+            <div class="data-health-widget">
+                <div class="data-health-header">
+                    <div class="data-health-title">
+                        <span>⚠️ Data Health & Audit</span>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="loadDataHealth()" style="font-size: 0.75rem; padding: 3px 8px;">🔄 Re-Audit</button>
+                </div>
+                <div class="data-health-grid">
+                    <div class="data-health-card">
+                        <span class="data-health-label">Total Customers / Plants</span>
+                        <span class="data-health-val" id="dhTotalCustomers">—</span>
+                        <span class="data-health-action" onclick="filterDirectory('all')">View all directory</span>
+                    </div>
+                    <div class="data-health-card">
+                        <span class="data-health-label">Ready to Message This Month</span>
+                        <span class="data-health-val" id="dhReady" style="color: #22c55e;">—</span>
+                        <span class="data-health-action" onclick="filterDirectory('ready')">Filter ready customers</span>
+                    </div>
+                    <div class="data-health-card">
+                        <span class="data-health-label">Customers with Missing Phone</span>
+                        <span class="data-health-val" id="dhMissingPhones" style="color: #f59e0b;">—</span>
+                        <span class="data-health-action" onclick="filterDirectory('missing_phone')">Fill in missing phones</span>
+                    </div>
+                    <div class="data-health-card">
+                        <span class="data-health-label">Opted-Out (Do Not Send)</span>
+                        <span class="data-health-val" id="dhOptedOut" style="color: #ef4444;">—</span>
+                        <span class="data-health-action" onclick="filterDirectory('opted_out')">View opted-out list</span>
+                    </div>
+                    <div class="data-health-card">
+                        <span class="data-health-label">Plants with No Customer Record</span>
+                        <span class="data-health-val" id="dhUnmapped" style="color: #38bdf8;">—</span>
+                        <span class="data-health-action" onclick="filterDirectory('unmapped')">View & map unmapped</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CRM Overview Stats Banner -->
+            <div class="crm-summary-grid" id="crmOverviewStats" style="margin-bottom: 14px;">
+                <div class="crm-card">
+                    <span class="crm-card-label">Total Customers</span>
+                    <span class="crm-card-value" id="crmStatTotalCust">—</span>
+                    <span class="crm-card-sub" id="crmStatActiveOpt">Active: —</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Phone Coverage</span>
+                    <span class="crm-card-value" id="crmStatPhoneCov" style="color:#38bdf8;">—%</span>
+                    <span class="crm-card-sub" id="crmStatWithPhone">— / — with mobile</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Total Messages Sent</span>
+                    <span class="crm-card-value" id="crmStatTotalSent" style="color:#22c55e;">—</span>
+                    <span class="crm-card-sub" id="crmStatCampaignsCount">— campaigns executed</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Overall Delivery Rate</span>
+                    <span class="crm-card-value" id="crmStatDeliveryRate" style="color:#f59e0b;">—%</span>
+                    <span class="crm-card-sub" id="crmStatFailedCount">— failed</span>
+                </div>
+            </div>
+
+            <!-- Directory Toolbar -->
+            <div class="action-bar glass-panel" style="margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                <div class="filters" style="flex: 1; flex-wrap: wrap;">
+                    <input type="text" id="crmSearchInput" placeholder="🔍 Search customer name, plant, or phone…" oninput="loadCustomersList(1)" style="min-width: 220px;">
+                    <select id="crmPlatformFilter" onchange="loadCustomersList(1)">
+                        <option value="">All Platforms</option>
+                        <option value="growatt">Growatt</option>
+                        <option value="isolarcloud">iSolarCloud</option>
+                        <option value="suryalog">SuryaLog</option>
+                    </select>
+                    <select id="crmOptInFilter" onchange="loadCustomersList(1)">
+                        <option value="">All Opt-In Statuses</option>
+                        <option value="active">Active (Opted In)</option>
+                        <option value="pending">Pending</option>
+                        <option value="do_not_send">Do Not Send (Opted Out)</option>
+                    </select>
+                    <select id="crmPhoneFilter" onchange="loadCustomersList(1)">
+                        <option value="">All Phone Statuses</option>
+                        <option value="true">Has Phone Number</option>
+                        <option value="false">Missing Phone Only</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn btn-primary btn-sm" onclick="openAddCustomerModal()">
+                        <span>+ Add Customer</span>
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="openImportContactsModal()">
+                        <span>📁 Import CSV</span>
+                    </button>
+                    <button class="btn btn-export btn-sm" onclick="exportCustomersCsv()" title="Export filtered customers table">
+                        <span>📥 Directory CSV</span>
+                    </button>
+                    <button class="btn btn-export btn-sm" onclick="exportCustomersFullCsv()" title="Export complete customer list with messaging delivery history">
+                        <span>📥 Full Customers CSV</span>
+                    </button>
+                    <button class="btn btn-export btn-sm" onclick="exportCampaignPerformanceCsv()" title="Export campaign historical performance stats">
+                        <span>📈 Campaign Stats CSV</span>
+                    </button>
+                    <button class="btn btn-export btn-sm" onclick="exportGenerationByCustomerCsv()" title="Export generation records matched with customers">
+                        <span>⚡ Gen by Customer CSV</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Customer Table -->
+            <div class="table-container glass-panel">
+                <table id="crmCustomersTable">
+                    <thead>
+                        <tr>
+                            <th>Customer Name</th>
+                            <th>Plant Name / ID</th>
+                            <th>Platform</th>
+                            <th>Phone Number (E.164)</th>
+                            <th>Opt-In Status</th>
+                            <th>Language</th>
+                            <th>Notes</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="crmCustomersBody">
+                        <tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">Loading customer directory...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination Bar -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding:0 4px; color:var(--text-secondary); font-size:0.85rem;">
+                <span id="crmPaginationInfo">Showing 0 of 0 customers</span>
+                <div style="display:flex; gap:6px;">
+                    <button id="crmPrevPageBtn" class="btn btn-secondary btn-sm" onclick="changeCustomerPage(-1)">← Previous</button>
+                    <span id="crmCurrentPageBadge" style="padding:4px 10px; font-weight:700;">Page 1</span>
+                    <button id="crmNextPageBtn" class="btn btn-secondary btn-sm" onclick="changeCustomerPage(1)">Next →</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── Mode 2: CRM Tab 2 — Monthly Statements ── -->
+        <section id="crmMonthlySection" class="crm-view-section">
+            <!-- Header Toolbar -->
+            <div class="action-bar glass-panel" style="margin-bottom: 16px; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn btn-secondary btn-sm" onclick="stepStatementMonth(-1)">←</button>
+                    <input type="month" id="crmStatementMonth" class="form-input" onchange="loadMonthlyStatements()" style="font-weight:700; cursor:pointer;">
+                    <button class="btn btn-secondary btn-sm" onclick="stepStatementMonth(1)">→</button>
+                    <span style="font-weight: 700; color: var(--primary-light);" id="crmStatementMonthLabel">June 2025</span>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn btn-primary btn-sm" onclick="prepareMonthlyCampaignFromStatements()">
+                        <span>⚡ Prepare Campaign & Queue</span>
+                    </button>
+                    <button class="btn btn-export btn-sm" onclick="exportStatementsCsv()">
+                        <span>📥 Export Statements CSV</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="crm-summary-grid">
+                <div class="crm-card">
+                    <span class="crm-card-label">Total Monthly Generation</span>
+                    <span class="crm-card-value" id="crmStmtTotalGen">— kWh</span>
+                    <span class="crm-card-sub">Fleet energy generated</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Total Customer Savings</span>
+                    <span class="crm-card-value" id="crmStmtTotalSavings" style="color:#22c55e;">₹—</span>
+                    <span class="crm-card-sub">Calculated at ₹14.0/kWh</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Customers Ready to Message</span>
+                    <span class="crm-card-value" id="crmStmtReady">—</span>
+                    <span class="crm-card-sub">Phone verified & opted-in</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Reports Pending</span>
+                    <span class="crm-card-value" id="crmStmtPending" style="color:#f59e0b;">—</span>
+                    <span class="crm-card-sub">Unsent or ready to queue</span>
+                </div>
+            </div>
+
+            <!-- Statements Table -->
+            <div class="table-container glass-panel">
+                <table id="crmStatementsTable">
+                    <thead>
+                        <tr>
+                            <th>Customer Name</th>
+                            <th>Plant Name</th>
+                            <th>Platform</th>
+                            <th>Generation (kWh)</th>
+                            <th>Est. Savings (₹)</th>
+                            <th>CO₂ Saved (kg)</th>
+                            <th title="Specific Yield (kWh/kWp). Green: >4.0, Yellow: 3.0-4.0, Red: <3.0">Specific Yield</th>
+                            <th>Message Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="crmStatementsBody">
+                        <tr><td colspan="9" style="text-align:center; padding:30px; color:var(--text-muted);">Select month to load statements...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ── Mode 2: CRM Tab 3 — Yearly Milestones ── -->
+        <section id="crmYearlySection" class="crm-view-section">
+            <!-- Header Toolbar -->
+            <div class="action-bar glass-panel" style="margin-bottom: 16px; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button class="btn btn-secondary btn-sm" onclick="stepYearlyReport(-1)">←</button>
+                    <select id="crmYearSelect" class="form-input" onchange="loadYearlyMilestones()" style="font-weight:700; cursor:pointer;">
+                        <option value="2026" selected>Year 2026</option>
+                        <option value="2025">Year 2025</option>
+                        <option value="2024">Year 2024</option>
+                        <option value="2023">Year 2023</option>
+                    </select>
+                    <button class="btn btn-secondary btn-sm" onclick="stepYearlyReport(1)">→</button>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-primary btn-sm" onclick="prepareYearlyRecapMessages()">
+                        <span>🏆 Prepare Yearly Recap Messages</span>
+                    </button>
+                    <button class="btn btn-export btn-sm" onclick="exportYearlyCsv()">
+                        <span>📥 Export Yearly CSV</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="crm-summary-grid">
+                <div class="crm-card">
+                    <span class="crm-card-label">Annual Fleet Generation</span>
+                    <span class="crm-card-value" id="crmYearTotalGen">— kWh</span>
+                    <span class="crm-card-sub" id="crmYearLabel">Year 2026</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Total Annual Savings</span>
+                    <span class="crm-card-value" id="crmYearTotalSavings" style="color:#22c55e;">₹—</span>
+                    <span class="crm-card-sub">Calculated at ₹14.0/kWh</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Homes Powered Equivalent</span>
+                    <span class="crm-card-value" id="crmYearDaysPowered" style="color:#38bdf8;">— days</span>
+                    <span class="crm-card-sub">@ 30 kWh / household / day</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Total Milestone Plants</span>
+                    <span class="crm-card-value" id="crmYearTotalPlants">—</span>
+                    <span class="crm-card-sub">Plants with recorded data</span>
+                </div>
+            </div>
+
+            <!-- Chart.js Visualization Card -->
+            <div class="glass-panel" style="padding: 16px 20px; margin-bottom: 18px;">
+                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--text-primary);">📊 Top Generating Plants Comparison</h3>
+                <div style="height: 240px; position: relative;">
+                    <canvas id="crmYearlyChartCanvas"></canvas>
+                </div>
+            </div>
+
+            <!-- Milestones Table -->
+            <div class="table-container glass-panel">
+                <table id="crmYearlyTable">
+                    <thead>
+                        <tr>
+                            <th>Customer Name</th>
+                            <th>Plant Name</th>
+                            <th>Platform</th>
+                            <th>Annual Generation (kWh)</th>
+                            <th>Annual Savings (₹)</th>
+                            <th>Best Month</th>
+                            <th>Days Powered</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="crmYearlyBody">
+                        <tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">Loading yearly milestones...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ── Mode 2: CRM Tab 4 — Campaign Manager ── -->
+        <section id="crmCampaignsSection" class="crm-view-section">
+            <!-- Campaign Selector & Actions Bar -->
+            <div class="action-bar glass-panel" style="margin-bottom: 16px; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Campaign:</label>
+                    <select id="crmCampaignSelect" class="form-input" onchange="onCampaignSelected(this.value)" style="font-weight:700; min-width: 240px;">
+                        <option value="">Loading campaigns...</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn btn-export btn-sm" onclick="exportSelectedCampaignCsv()" id="btnExportCampaignCsv" title="Export campaign messages for dispatch">
+                        <span>📥 Export Campaign CSV</span>
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="dryRunSelectedCampaign()" id="btnDryRunCampaign" title="Simulate console dispatch for pending messages">
+                        <span>🧪 Run Dry-Run</span>
+                    </button>
+                    <button class="btn btn-emerald btn-sm btn-coming-soon" disabled title="WhatsApp API coming soon">
+                        <span>🚀 Send Selected</span>
+                    </button>
+                    <button class="btn btn-primary btn-sm btn-coming-soon" disabled title="WhatsApp API coming soon">
+                        <span>⚡ Send All Active</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Campaign Summary Card -->
+            <div class="glass-panel" style="padding: 16px 20px; margin-bottom: 16px;" id="crmCampaignSummaryCard">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <h3 id="campSummaryTitle" style="font-size: 1.1rem; font-weight: 800; color: var(--text-primary); margin-bottom: 2px;">Monthly Billing Update</h3>
+                        <span id="campSummaryMonth" style="font-size: 0.8rem; color: var(--text-muted);">Period: 2026-09</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="campSummaryStatusBadge" class="crm-badge active">DRAFT</span>
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="campaign-progress-track">
+                    <div id="campProgSent" class="progress-sent" style="width: 0%;" title="Sent"></div>
+                    <div id="campProgFailed" class="progress-failed" style="width: 0%;" title="Failed"></div>
+                    <div id="campProgSkipped" class="progress-skipped" style="width: 0%;" title="Skipped"></div>
+                    <div id="campProgPending" class="progress-pending" style="width: 0%;" title="Pending"></div>
+                </div>
+
+                <!-- Metrics breakdown -->
+                <div style="display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.84rem; color: var(--text-secondary);">
+                    <span>Total: <strong id="campCountTotal" style="color:var(--text-primary);">0</strong></span>
+                    <span>Sent: <strong id="campCountSent" style="color:#22c55e;">0</strong></span>
+                    <span>Failed: <strong id="campCountFailed" style="color:#ef4444;">0</strong></span>
+                    <span>Skipped (Opt-out / No phone): <strong id="campCountSkipped" style="color:#94a3b8;">0</strong></span>
+                    <span>Pending: <strong id="campCountPending" style="color:#38bdf8;">0</strong></span>
+                </div>
+            </div>
+
+            <!-- Message Preview Table -->
+            <div class="table-container glass-panel">
+                <table id="crmMessagesTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;">#</th>
+                            <th>Customer Name</th>
+                            <th>Plant</th>
+                            <th>Phone Number</th>
+                            <th>Message Preview</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="crmMessagesBody">
+                        <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">Select a campaign above to preview messages...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ── Mode 2: CRM Tab 5 — Offline Alerts ── -->
+        <section id="crmAlertsSection" class="crm-view-section">
+            <!-- Header Toolbar -->
+            <div class="action-bar glass-panel" style="margin-bottom: 16px; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Threshold:</label>
+                    <select id="crmAlertThresholdSelect" class="form-input" onchange="loadOfflineAlerts()" style="font-weight:700;">
+                        <option value="24" selected>Offline &gt; 24 Hours</option>
+                        <option value="48">Offline &gt; 48 Hours</option>
+                        <option value="72">Offline &gt; 72 Hours</option>
+                        <option value="12">Offline &gt; 12 Hours</option>
+                    </select>
+                    <span style="font-size: 0.85rem; color: var(--text-secondary);" id="crmOfflineCountLabel">Found — offline plants</span>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-primary btn-sm" onclick="prepareOfflineAlertCampaign()">
+                        <span>🚨 Prepare Offline Alert Messages</span>
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="loadOfflineAlerts()">
+                        <span>🔄 Refresh</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Offline Plants Table -->
+            <div class="table-container glass-panel">
+                <table id="crmOfflineTable">
+                    <thead>
+                        <tr>
+                            <th>Plant Name</th>
+                            <th>Platform</th>
+                            <th>Customer Name</th>
+                            <th>Phone Number</th>
+                            <th>Device Status</th>
+                            <th>Last Telemetry Update</th>
+                            <th>Hours Offline</th>
+                            <th>Alert Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="crmOfflineBody">
+                        <tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">Scanning telemetry snapshots...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Draft Message Preview Box -->
+            <div class="glass-panel" style="padding: 16px 20px; margin-top: 16px;">
+                <h4 style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">💬 Draft Alert Message Preview:</h4>
+                <div class="draft-preview-box" id="crmDraftOfflineBox">Hello {customer_name}, we noticed your solar plant {plant_name} has been offline for {hours_offline} hours. Our team is aware and a technician will follow up shortly. Sorry for the inconvenience. — Solaron Homes Support</div>
+            </div>
+        </section>
+
+    </div> <!-- ── End app-container ── -->
+
+    <!-- ── Plant Analytics Modal ── -->
+    <div id="plantAnalyticsModal" class="modal" onclick="closeModalOnBackdrop(event)">
+        <div class="modal-content glass-panel" style="max-width: 800px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+                <div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                        <h2 id="paPlantName" style="margin: 0; font-size: 1.6rem; color: var(--text-primary); font-weight: 700;">Plant Name</h2>
+                        <span id="paSourceBadge"></span>
+                        <span id="paStatusBadge"></span>
+                    </div>
+                    <div style="color: var(--text-secondary); font-size: 0.9rem;">
+                        📍 <span id="paCityLabel">City</span> | Capacity: <span id="paCapacity" style="font-weight: 600; color: var(--text-primary);">-- kWp</span> | Live: <span id="paLivePower" style="font-weight: 600; color: var(--primary-light);">-- kW</span>
+                    </div>
+                </div>
+                <button onclick="document.getElementById('plantAnalyticsModal').style.display='none'" class="btn btn-ghost" style="font-size: 1.2rem; padding: 4px 12px;">✕</button>
+            </div>
+            
+            <div class="stats-container" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                <div class="stat-card" style="padding: 12px;">
+                    <div class="stat-title">Energy Today</div>
+                    <div class="stat-value" id="paEnergyToday" style="font-size: 1.3rem;">--</div>
+                </div>
+                <div class="stat-card" style="padding: 12px;">
+                    <div class="stat-title">Yesterday</div>
+                    <div class="stat-value" id="paEnergyYesterday" style="font-size: 1.3rem; color: #38bdf8;">--</div>
+                </div>
+                <div class="stat-card" style="padding: 12px;">
+                    <div class="stat-title">Past 7 Days</div>
+                    <div class="stat-value" id="paEnergyWeekly" style="font-size: 1.3rem; color: #a78bfa;">--</div>
+                </div>
+                <div class="stat-card" style="padding: 12px;">
+                    <div class="stat-title" id="paMonthCardTitle">This Month</div>
+                    <div class="stat-value" id="paEnergyMonth" style="font-size: 1.3rem;">--</div>
+                </div>
+                <div class="stat-card" style="padding: 12px;">
+                    <div class="stat-title">Specific Yield</div>
+                    <div class="stat-value" id="paSpecificYield" style="font-size: 1.3rem; color: #fbbf24;">--</div>
+                </div>
+                <div class="stat-card" style="padding: 12px;">
+                    <div class="stat-title">Fleet Deviation</div>
+                    <div class="stat-value" id="paDeviationPct" style="font-size: 1.3rem;">--</div>
+                </div>
+                <div class="stat-card total-gen" style="padding: 12px;">
+                    <div class="stat-title">Est. Savings</div>
+                    <div class="stat-value" id="paSavings" style="font-size: 1.3rem; color: #10b981;">--</div>
+                </div>
+            </div>
+
+            <!-- Daily Generation Trend (Past 14 Days) -->
+            <div id="paDailyTrendContainer" style="background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 18px; margin-bottom: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h3 style="margin: 0; font-size: 1rem; color: var(--text-primary);">📅 Recent Daily Generation (Past 14 Days)</h3>
+                    <span style="font-size: 0.8rem; color: #38bdf8; font-weight: 600;">kWh / Day</span>
+                </div>
+                <div id="paDailyChartBars" class="chart-container" style="display: flex; align-items: flex-end; justify-content: flex-start; height: 130px; gap: 6px; padding-top: 15px; overflow-x: auto;">
+                    <!-- Daily bars injected by JS -->
+                </div>
+            </div>
+
+            <div style="background: var(--bg-surface); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-primary);">Monthly Generation Breakdown</h3>
+                    <span id="paBreakdownYearLabel" style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600; background: var(--bg-elevated); padding: 4px 10px; border-radius: var(--radius-full);">Year ----</span>
+                </div>
+                <div id="paMonthlyChartBars" class="chart-container" style="display: flex; align-items: flex-end; justify-content: space-between; height: 160px; gap: 8px; padding-top: 20px;">
+                    <!-- Bars injected by JS -->
+                </div>
+            </div>
+
+            <div style="margin-bottom: 24px;">
+                <h3 style="margin: 0 0 12px 0; font-size: 1rem; color: var(--text-primary);">Yearly History</h3>
+                <div id="paYearlyHistoryChips" style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    <!-- Chips injected by JS -->
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--glass-border); padding-top: 16px;">
+                <div id="paPhoneAction">
+                    <!-- WhatsApp/Phone action button injected by JS -->
+                </div>
+                <button onclick="document.getElementById('plantAnalyticsModal').style.display='none'" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Message Preview Modal ── -->
+    <div id="messageModal" class="modal" onclick="closeModalOnBackdrop(event)">
+        <div class="modal-content glass-panel">
+            <span class="close-btn" onclick="closeModal()" title="Close">&times;</span>
+            <h2>WhatsApp Message Preview</h2>
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                <p class="modal-plant" id="modalPlantName" style="margin-bottom: 0;"></p>
+                <span id="modalPhoneBadge" class="status-badge"
+                    style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3);"></span>
+            </div>
+            <textarea id="messageText" rows="12" readonly></textarea>
+            <div class="modal-actions"
+                style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button id="modalSendDirectBtn" class="btn btn-primary btn-sm"
+                        onclick="sendDirectFromPreviewModal()"
+                        style="background: #25D366; color: #fff; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;"
+                        title="Send message directly without opening new windows">
+                        ✉ Send Directly Now
+                    </button>
+                    <a id="modalWhatsAppBtn" href="#" onclick="openWhatsAppManual(event)" class="btn btn-outline btn-sm"
+                        style="border-color: #64748b; color: #94a3b8; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem;"
+                        title="Open in browser (reuses single window to prevent WhatsApp conflicts)">
+                        🌐 Open Web (Manual)
+                    </a>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-outline btn-sm" onclick="closeModal()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── System Diagnostics Modal ── -->
+    <div id="diagnosticsModal" class="modal" onclick="closeDiagnosticsOnBackdrop(event)" style="display: none;">
+        <div class="modal-content glass-panel" style="max-width: 650px;">
+            <span class="close-btn" onclick="closeDiagnosticsModal()" title="Close">&times;</span>
+            <h2>Automated System Diagnostics</h2>
+            <p id="diagSummaryMsg" style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 16px;">Checking system
+                health...</p>
+
+            <div id="diagContent" style="display: flex; flex-direction: column; gap: 12px;">
+                <!-- Rendered by app.js -->
+            </div>
+
+            <div class="modal-actions" style="display: flex; justify-content: flex-end; margin-top: 20px;">
+                <button class="btn btn-outline btn-sm" onclick="closeDiagnosticsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Direct Edit Contact Modal ── -->
+    <div id="contactModal" class="modal" onclick="closeContactModalOnBackdrop(event)" style="display: none;">
+        <div class="modal-content glass-panel" style="max-width: 480px;">
+            <span class="close-btn" onclick="closeContactModal()" title="Close">&times;</span>
+            <h2>📞 Update Contact Phone</h2>
+            <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 16px;">
+                Set a verified 10-digit WhatsApp number for this plant. Changes are saved immediately.
+            </p>
+
+            <div style="margin-bottom: 14px;">
+                <label
+                    style="display: block; font-size: 0.78rem; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Plant
+                    Name</label>
+                <input type="text" id="editContactPlantName" readonly
+                    style="background: rgba(15, 23, 42, 0.7); color: #e2e8f0; cursor: not-allowed; width: 100%;">
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label
+                    style="display: block; font-size: 0.78rem; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">10-Digit
+                    Mobile Number</label>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span
+                        style="padding: 9px 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--glass-border); border-radius: 8px; font-weight: 600; color: #94a3b8; font-size: 0.875rem;">+91</span>
+                    <input type="text" id="editContactPhone" placeholder="e.g. 9876543210" maxlength="10"
+                        style="flex: 1; font-family: monospace; font-size: 1rem; letter-spacing: 0.05em;"
+                        onkeypress="if(event.key==='Enter') saveContactDirect()">
+                </div>
+                <small id="editContactHint"
+                    style="display: block; margin-top: 6px; font-size: 0.75rem; color: #64748b;">Must be a valid
+                    10-digit Indian mobile number (starting with 6, 7, 8, or 9).</small>
+            </div>
+
+            <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn btn-outline btn-sm" onclick="closeContactModal()">Cancel</button>
+                <button id="saveContactBtn" class="btn btn-primary btn-sm" onclick="saveContactDirect()">💾 Save
+                    Contact</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Import Contacts CSV Modal ── -->
+    <div id="importContactsModal" class="modal" onclick="closeImportModalOnBackdrop(event)" style="display: none;">
+        <div class="modal-content glass-panel" style="max-width: 540px;">
+            <span class="close-btn" onclick="closeImportContactsModal()" title="Close">&times;</span>
+            <h2>📁 Bulk Import Contacts from CSV</h2>
+            <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 16px;">
+                Upload a CSV containing customer phone numbers. Supported columns: <strong>Plant Name</strong> (or
+                <em>Name</em>) and <strong>Phone Number</strong> (or <em>Mobile</em>).
+            </p>
+
+            <div
+                style="background: rgba(15, 23, 42, 0.6); border: 1px dashed var(--glass-border-h); border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 16px;">
+                <input type="file" id="contactsCsvFileInput" accept=".csv" style="display: none;"
+                    onchange="onContactsCsvSelected()">
+                <label for="contactsCsvFileInput" class="btn btn-outline btn-sm"
+                    style="cursor: pointer; display: inline-block; margin-bottom: 8px;">
+                    📎 Choose CSV File
+                </label>
+                <p id="selectedCsvFilename"
+                    style="color: #38bdf8; font-size: 0.85rem; font-family: monospace; margin-bottom: 4px;">No file
+                    selected</p>
+                <small style="color: #64748b; font-size: 0.75rem;">Accepts .csv files exported from Excel, CRM, or
+                    Google Sheets</small>
+            </div>
+
+            <div id="importStatusBox"
+                style="display: none; padding: 12px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px;">
+            </div>
+
+            <div class="modal-actions"
+                style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <a href="data:text/csv;charset=utf-8,Plant%20Name,Phone%20Number%0APlant%20Alpha,9876543210%0A"
+                    download="sample_contacts_template.csv"
+                    style="color: #94a3b8; font-size: 0.78rem; text-decoration: underline;">
+                    ⬇ Download Sample CSV
+                </a>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-outline btn-sm" onclick="closeImportContactsModal()">Cancel</button>
+                    <button id="uploadContactsBtn" class="btn btn-primary btn-sm" onclick="uploadContactsCsv()"
+                        disabled>
+                        🚀 Import & Synchronize
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── On-Demand Yearly Fetch Confirmation Modal ── -->
+    <div id="yearlyFetchModal" class="modal" onclick="closeYearlyModalOnBackdrop(event)" style="display: none;">
+        <div class="modal-content glass-panel" style="max-width: 520px;">
+            <span class="close-btn" onclick="closeYearlyFetchModal()" title="Close">&times;</span>
+            <h2>📈 Fetch Yearly Generation History</h2>
+            <p style="color: #94a3b8; font-size: 0.88rem; margin-bottom: 14px; line-height: 1.5;">
+                This on-demand operation retrieves detailed <strong>12-month generation breakdowns</strong> for current
+                and previous years (<span id="yearlyTargetYearLabel">2026 & 2025</span>), plus multi-year totals.
+            </p>
+            <div
+                style="background: rgba(167, 139, 250, 0.1); border: 1px solid rgba(167, 139, 250, 0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+                <div
+                    style="display: flex; align-items: center; gap: 8px; color: #c4b5fd; font-weight: 600; font-size: 0.85rem; margin-bottom: 4px;">
+                    <span>⏱ Duration Notice</span>
+                </div>
+                <p style="color: #ddd6fe; font-size: 0.8rem; margin: 0;">
+                    Because this requires multi-year queries across 400+ solar plants, it takes <strong>~8 to 20
+                        minutes</strong>. It runs in the background so you can continue using the dashboard.
+                </p>
+            </div>
+            <div style="margin-bottom: 18px;">
+                <label
+                    style="display: block; font-size: 0.78rem; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Target
+                    Reference Year</label>
+                <select id="yearlyFetchSelect" class="form-input" style="width: 100%;">
+                    <option value="2026" selected>Year 2026 (Monthly breakdown: 2026 & 2025 • Totals: 2024 & older)
+                    </option>
+                    <option value="2025">Year 2025 (Monthly breakdown: 2025 & 2024 • Totals: 2023 & older)</option>
+                    <option value="2024">Year 2024 (Annual total generation)</option>
+                    <option value="2023">Year 2023 (Annual total generation)</option>
+                </select>
+            </div>
+            <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn btn-outline btn-sm" onclick="closeYearlyFetchModal()">Cancel</button>
+                <button id="startYearlyFetchBtn" class="btn btn-primary btn-sm" onclick="confirmYearlyFetch()"
+                    style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); font-weight: 700;">
+                    ⚡ Start Yearly Fetch
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Floating Selection Action Dock ── -->
+    <div id="floatingSelectionBar" class="floating-selection-dock" style="display: none;">
+        <div class="dock-content">
+            <div class="dock-info">
+                <span class="dock-pulse"></span>
+                <span class="dock-count"><b id="floatingSelectedCount">0</b> plants selected</span>
+            </div>
+            <div class="dock-divider"></div>
+            <div class="dock-actions">
+                <button id="dockSendBtn" class="btn btn-emerald btn-sm" onclick="sendSelectedDirect()"
+                    title="Send WhatsApp messages directly to selected plants sequentially">
+                    🚀 Send Selected (<span id="dockSendBadge">0</span>)
+                </button>
+                <button class="btn btn-ghost btn-sm" onclick="copySelectedMessages()"
+                    title="Copy formatted messages of selected plants to clipboard">
+                    📋 Copy Text
+                </button>
+                <button class="btn btn-ghost btn-sm btn-clear-sel" onclick="clearSelectedCheckboxes()"
+                    title="Deselect all plants">
+                    ✕ Clear
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- ── CRM Add / Edit Customer Modal ── -->
+    <div id="crmCustomerModal" class="modal" style="display: none;">
+        <div class="modal-content glass-panel" style="max-width: 500px;">
+            <span class="close-btn" onclick="closeCustomerModal()" title="Close">&times;</span>
+            <h2 id="crmModalTitle" style="font-size: 1.3rem; margin-bottom: 16px;">+ Add Customer</h2>
+            <form id="crmCustomerForm" onsubmit="saveCustomerForm(event)">
+                <input type="hidden" id="crmFormCustId">
+                <div style="margin-bottom: 12px;">
+                    <label style="display:block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Customer Name</label>
+                    <input type="text" id="crmFormName" class="form-input" required placeholder="e.g. Ramesh Shah" style="width: 100%;">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label style="display:block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Plant ID / Unique Key</label>
+                    <input type="text" id="crmFormPlantId" class="form-input" required placeholder="e.g. 11156917 or Plant-Name" style="width: 100%;">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label style="display:block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Plant Display Name</label>
+                    <input type="text" id="crmFormPlantName" class="form-input" placeholder="e.g. Navi Mumbai-01" style="width: 100%;">
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label style="display:block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Platform</label>
+                    <select id="crmFormPlatform" class="form-input" style="width: 100%;">
+                        <option value="growatt">Growatt</option>
+                        <option value="isolarcloud">iSolarCloud</option>
+                        <option value="suryalog">SuryaLog</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 12px;">
+                    <label style="display:block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Phone Number (E.164 e.g. +9198XXXXXXXX)</label>
+                    <input type="text" id="crmFormPhone" class="form-input" placeholder="+919876543210" style="width: 100%;" pattern="^(\+?\d{10,15})?$">
+                    <span style="font-size: 0.74rem; color: var(--text-muted);">Enter 10-digit or international format with country code</span>
+                </div>
+                <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                    <div style="flex: 1;">
+                        <label style="display:block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Opt-in Status</label>
+                        <select id="crmFormOptIn" class="form-input" style="width: 100%;">
+                            <option value="active">Active (Send messages)</option>
+                            <option value="pending">Pending</option>
+                            <option value="do_not_send">Do Not Send (Opted Out)</option>
+                        </select>
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display:block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Language</label>
+                        <select id="crmFormLang" class="form-input" style="width: 100%;">
+                            <option value="english">English</option>
+                            <option value="hindi">Hindi</option>
+                            <option value="marathi">Marathi</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-bottom: 16px;">
+                    <label style="display:block; font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase;">Notes</label>
+                    <textarea id="crmFormNotes" class="form-input" rows="2" style="width: 100%; resize: vertical;" placeholder="Customer remarks, location, inverter info..."></textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="closeCustomerModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm" id="btnSaveCustomer">💾 Save Customer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── CRM Message Full Preview Modal ── -->
+    <div id="crmMsgModal" class="modal" style="display: none;">
+        <div class="modal-content glass-panel" style="max-width: 550px;">
+            <span class="close-btn" onclick="closeMsgModal()" title="Close">&times;</span>
+            <h2 id="crmMsgModalTitle" style="font-size: 1.2rem; margin-bottom: 12px;">💬 Message Preview</h2>
+            <div style="margin-bottom: 10px; font-size: 0.85rem; color: var(--text-secondary);">
+                <span>Recipient: <strong id="crmMsgRecipient" style="color:var(--text-primary);">--</strong></span> |
+                <span>Status: <strong id="crmMsgStatus">--</strong></span>
+            </div>
+            <div class="draft-preview-box" id="crmMsgFullText" style="max-height: 280px; overflow-y: auto;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
+                <button class="btn btn-secondary btn-sm" onclick="copyMsgModalText()">📋 Copy Text</button>
+                <button class="btn btn-primary btn-sm" onclick="closeMsgModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── CRM Customer Full Profile Modal ── -->
+    <div id="crmCustomerProfileModal" class="modal" style="display: none;">
+        <div class="modal-content glass-panel" style="max-width: 820px; max-height: 90vh; overflow-y: auto;">
+            <span class="close-btn" onclick="closeCustomerProfileModal()" title="Close">&times;</span>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h2 id="profCustomerName" style="font-size: 1.4rem; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">Customer Profile</h2>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <span id="profPlantName" style="color: var(--primary-light); font-weight: 600;">Plant Name</span>
+                        <span id="profPlatformBadge" class="platform-chip chip-growatt">growatt</span>
+                        <span id="profOptInBadge" class="status-badge badge-active">Active</span>
+                        <span id="profLangBadge" class="status-badge" style="background: rgba(255,255,255,0.08);">English</span>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Phone Number:</div>
+                    <div id="profPhone" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">--</div>
+                </div>
+            </div>
+
+            <!-- Lifetime Metrics KPI Grid -->
+            <div class="crm-summary-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 20px;">
+                <div class="crm-card">
+                    <span class="crm-card-label">Lifetime Generation</span>
+                    <span class="crm-card-value" id="profLifetimeGen" style="color: var(--amber);">— kWh</span>
+                    <span class="crm-card-sub" id="profMonthsRecorded">— months recorded</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Total Savings</span>
+                    <span class="crm-card-value" id="profLifetimeSavings" style="color: #22c55e;">₹—</span>
+                    <span class="crm-card-sub">@ ₹14.0/kWh</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">CO₂ Offset</span>
+                    <span class="crm-card-value" id="profLifetimeCo2" style="color: #38bdf8;">— kg</span>
+                    <span class="crm-card-sub">Clean energy impact</span>
+                </div>
+                <div class="crm-card">
+                    <span class="crm-card-label">Messages Sent</span>
+                    <span class="crm-card-value" id="profTotalSent" style="color: #a855f7;">—</span>
+                    <span class="crm-card-sub" id="profDeliveryRate">Delivery: —%</span>
+                </div>
+            </div>
+
+            <!-- Sections: Monthly Generation History & Campaign Messages -->
+            <div style="margin-bottom: 20px;">
+                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--text-primary);">📊 Monthly Generation History (Latest 24 Months)</h3>
+                <div class="table-container glass-panel" style="max-height: 220px; overflow-y: auto;">
+                    <table style="width: 100%; font-size: 0.82rem;">
+                        <thead>
+                            <tr>
+                                <th>Month</th>
+                                <th>Generation (kWh)</th>
+                                <th>Specific Yield (kWh/kWp)</th>
+                                <th>CUF %</th>
+                                <th>Avg Daily (kWh)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="profMonthlyBody">
+                            <tr><td colspan="5" style="text-align:center; padding:15px; color:var(--text-muted);">No generation history found.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div>
+                <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--text-primary);">💬 WhatsApp & Messaging History</h3>
+                <div class="table-container glass-panel" style="max-height: 200px; overflow-y: auto;">
+                    <table style="width: 100%; font-size: 0.82rem;">
+                        <thead>
+                            <tr>
+                                <th>Date / Period</th>
+                                <th>Template Used</th>
+                                <th>Campaign ID</th>
+                                <th>Status</th>
+                                <th>Details / Error</th>
+                            </tr>
+                        </thead>
+                        <tbody id="profMessageBody">
+                            <tr><td colspan="5" style="text-align:center; padding:15px; color:var(--text-muted);">No messaging history recorded.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                <button class="btn btn-secondary btn-sm" onclick="closeCustomerProfileModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Chart.js ── -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="/static/js/app.js?v=3.1"></script>
+</body>
+
+</html>

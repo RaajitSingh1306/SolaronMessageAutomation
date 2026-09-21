@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.py text diff=python
+*.sh text eol=lf
+*.bat text eol=crlf

@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: solaron-messenger
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: BACKEND_DASHBOARD_URL
+        value: https://solaron-analytics.onrender.com
+      - key: TEST_PHONE_NUMBER
+        sync: false
+      - key: SUPPORT_PHONE
+        sync: false
+      - key: AUTO_SYNC_ENABLED
+        value: "true"
+      - key: PRICE_PER_UNIT
+        value: "14.0"

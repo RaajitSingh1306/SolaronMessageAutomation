@@ -1,0 +1,45 @@
+# Secrets — never commit this file
+.env
+
+# Excel backups
+*.backup
+
+# Uploaded files and auto-generated data
+uploads/
+data/
+PyWhatKit_DB.txt
+
+# Do not commit sample data
+/*.xlsx
+/*.xls
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Test artefacts
+.pytest_cache/
+*.pytest_tmp
+_test_*.xlsx
+.coverage
+htmlcov/
+
+# PyInstaller & build distributions
+.pyinstaller_cache/
+dist/
+*.spec
+*.spec.backup
+scratch/
+
+# Logs
+*.log
+solaron_server.log
+
+# IDE
+.vscode/
+.idea/
+

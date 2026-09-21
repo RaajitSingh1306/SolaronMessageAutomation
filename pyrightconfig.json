@@ -1,0 +1,16 @@
+{
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Windows",
+  "venvPath": ".",
+  "include": ["."],
+  "exclude": [
+    "**/__pycache__",
+    ".pytest_cache",
+    "build",
+    "dist",
+    "data",
+    "uploads"
+  ],
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false
+}
